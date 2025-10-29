@@ -1,35 +1,46 @@
 import json
 import subprocess
+import os
+
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3")
 
 def ask_model(user_prompt: str):
     """
-    Send a prompt to the local Ollama model and expect JSON output.
+    Sends a prompt to Ollama and expects a JSON response.
+    Returns dict or raises ValueError.
     """
     prompt = f"""
-    You are an automation assistant that outputs ONLY JSON.
-    Based on the user's request, choose a tool and arguments.
+You are an automation assistant that outputs ONLY JSON (a single JSON object).
+Available tools:
+- create_user(username: str, roles: list[str])
+- update_file(path: str, content: str, overwrite: bool)
 
-    Available tools:
-    - create_user(username: str, roles: list[str])
-    - update_file(path: str, content: str)
+Return exactly one JSON object like:
+{{"tool": "create_user", "args": {{"username":"alice","roles":["dev"]}}}}
 
-    Return ONLY a JSON object, e.g.:
-    {{"tool": "create_user", "args": {{"username": "alice", "roles": ["dev"]}}}}
-
-    User: {user_prompt}
-    """
-
+User: {user_prompt}
+"""
     try:
-        result = subprocess.run(
-            ["ollama", "run", "llama3", prompt],
-            capture_output=True, text=True, check=True
+        proc = subprocess.run(
+            ["ollama", "run", OLLAMA_MODEL, prompt],
+            capture_output=True, text=True, check=True, timeout=30
         )
-        output = result.stdout.strip()
-
-        # Some models add text around JSON — extract clean JSON
-        start = output.find("{")
-        end = output.rfind("}") + 1
-        json_str = output[start:end]
-        return json.loads(json_str)
+        output = proc.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        raise ValueError(f"ollama run failed: {e.stderr or e.stdout}")
     except Exception as e:
-        return {"error": str(e), "raw_output": result.stdout if 'result' in locals() else ""}
+        raise ValueError(f"ollama invocation error: {e}")
+
+    # Extract the first JSON object in the output (robust to extra text)
+    start = output.find("{")
+    end = output.rfind("}") + 1
+    if start == -1 or end == 0:
+        raise ValueError(f"no JSON object found in model output: {output!r}")
+
+    json_str = output[start:end]
+    try:
+        obj = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"failed to parse JSON from model output: {e}; raw: {json_str!r}")
+
+    return obj
