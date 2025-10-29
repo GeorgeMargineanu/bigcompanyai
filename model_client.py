@@ -1,51 +1,35 @@
-# Example using llama-cpp-python. Swap this out for your favorite local runtime.
 import json
-import os
-from llama_cpp import Llama
-
-
-MODEL_PATH = os.environ.get('MODEL_PATH', '/models/ggml-model.bin')
-llm = Llama(model_path=MODEL_PATH)
-
-
-# We expect the model to output a JSON object. Use a prompt that constrains output to JSON.
-PROMPT_TEMPLATE = '''You are an assistant that outputs exactly one JSON object describing which tool to call.
-
-
-Respond with ONLY valid JSON and nothing else. The object should have the fields:
-- tool: string
-- args: object
-- explain: optional string
-
-
-Available tools: create_user, update_file
-
-
-User request: "{user_prompt}"
-
-
-Return JSON now.'''
-
-
-
+import subprocess
 
 def ask_model(user_prompt: str):
-    prompt = PROMPT_TEMPLATE.format(user_prompt=user_prompt)
-    # This instruction tuning hyperparameters are minimal; tweak them in real deployment
-    out = llm(prompt, max_tokens=256, temperature=0.0)
-    text = out['choices'][0]['text']
-    # Try to parse JSON; allow the model to sometimes include backticks by stripping
-    text = text.strip()
-    # Some models prefix with ```json ... ``` — remove fences
-    if text.startswith('```'):
-        # remove triple fence and optional language
-        parts = text.split('```')
-    if len(parts) >= 2:
-        text = parts[1].strip()
+    """
+    Send a prompt to the local Ollama model and expect JSON output.
+    """
+    prompt = f"""
+    You are an automation assistant that outputs ONLY JSON.
+    Based on the user's request, choose a tool and arguments.
 
+    Available tools:
+    - create_user(username: str, roles: list[str])
+    - update_file(path: str, content: str)
+
+    Return ONLY a JSON object, e.g.:
+    {{"tool": "create_user", "args": {{"username": "alice", "roles": ["dev"]}}}}
+
+    User: {user_prompt}
+    """
 
     try:
-        obj = json.loads(text)
+        result = subprocess.run(
+            ["ollama", "run", "llama3", prompt],
+            capture_output=True, text=True, check=True
+        )
+        output = result.stdout.strip()
+
+        # Some models add text around JSON — extract clean JSON
+        start = output.find("{")
+        end = output.rfind("}") + 1
+        json_str = output[start:end]
+        return json.loads(json_str)
     except Exception as e:
-        raise ValueError('failed to parse JSON from model output: ' + repr(text))
-    return obj
+        return {"error": str(e), "raw_output": result.stdout if 'result' in locals() else ""}
