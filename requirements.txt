@@ -1,6 +1,2 @@
 fastapi
-uvicorn[standard]
-pydantic
-jsonschema
-llama-cpp-python>=0.1.67 # adapter to run ggml models in Python (if you choose this route)
-python-multipart
+uvicorn
