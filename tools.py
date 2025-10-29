@@ -10,8 +10,8 @@ TOOL_REGISTRY: Dict[str, Callable] = {}
 def register(name):
     def _wrap(fn):
         TOOL_REGISTRY[name] = fn
-    return fn
-return _wrap
+        return fn
+    return _wrap
 
 
 @register('update_file')
